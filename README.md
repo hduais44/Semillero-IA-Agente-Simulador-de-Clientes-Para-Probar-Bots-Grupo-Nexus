@@ -14,9 +14,9 @@ Agente de inteligencia artificial que simula clientes humanos con comportamiento
 - Configuración mediante archivo JSON
 - Interacción automática con bot simulado
 
+## Video
+[Link al video]
+
 ## Ejecución
 ```bash
 python src/main.py
-
-## Video
-[Link al video]
