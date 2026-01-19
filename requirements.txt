@@ -1,0 +1,2 @@
+# Proyecto Agente Simulador de Clientes
+# No requiere librerías externas
