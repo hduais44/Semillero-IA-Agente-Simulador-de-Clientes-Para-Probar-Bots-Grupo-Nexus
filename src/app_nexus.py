@@ -1,111 +1,204 @@
 import streamlit as st
 import os
 import time
-#from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import PromptTemplate
-#from google.api_core.exceptions import ResourceExhausted
-from langchain_groq import ChatGroq                        
 import json
+from langchain_core.prompts import PromptTemplate
+from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 
-# Función para cargar conocimientos
+# --- 1. CONFIGURACIÓN INICIAL Y ESTILOS ---
+st.set_page_config(page_title="Simulador Nexus V3", page_icon="💻", layout="wide")
+
+st.markdown("""
+<style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    .stButton button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: bold;
+    }
+    h1 { text-align: center; color: #00BA37; }
+    
+    /* Estilo para el indicador RAG */
+    .rag-box {
+        padding: 10px;
+        border-radius: 5px;
+        background-color: #cccccc;
+        border-left: 5px solid #00BA37;
+        color: #31333F;
+        font-size: 0.9em;
+        margin-bottom: 15px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Función para cargar RAG
 def cargar_conocimiento():
+    carpeta = "config" 
+    archivo = "knowledge_base.json"
+    ruta_completa = os.path.join(carpeta, archivo)
     try:
-        with open('knowledge_base.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
+        with open(ruta_completa, 'r', encoding='utf-8') as f:
+            return json.load(f), ruta_completa    
     except FileNotFoundError:
-        return {"error": "No se encontró el archivo de políticas."}
+        return {"error": f"No se encontró el archivo en: {ruta_completa}"}, "Error de Ruta"
 
-# Cargamos las políticas al iniciar
-politicas_empresa = cargar_conocimiento()
+politicas_empresa, nombre_rag = cargar_conocimiento()
 
+#Función para obtener historial
 def obtener_historial_como_texto():
     texto_historial = ""
-    for msg in st.session_state.mensajes:
+    mensajes_recientes = st.session_state.mensajes[-8:]
+    
+    for msg in mensajes_recientes:
         rol = "SOPORTE" if msg["role"] == "assistant" else "CLIENTE"
         texto_historial += f"{rol}: {msg['content']}\n"
     return texto_historial
 
-# --- 1. CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(page_title="Simulador Nexus V2", page_icon="🤖", layout="wide")
+# --- 2. GESTIÓN DE ESTADO ---
+if "pagina_actual" not in st.session_state: st.session_state.pagina_actual = "configuracion"
+if "mensajes" not in st.session_state: st.session_state.mensajes = []
+if "caso_activo" not in st.session_state: st.session_state.caso_activo = True
+if "simulacion_corriendo" not in st.session_state: st.session_state.simulacion_corriendo = False
 
-st.title("🤖 Proyecto Nexus: Simulador de Clientes")
-st.markdown("### V2.0 - Versión Estable")
 
-# --- 2. BARRA LATERAL (PARAMETRIZACIÓN) ---
-with st.sidebar:
-    st.header("⚙️ Configuración del Cliente")
-    
-    # API KEY
-    api_key = st.text_input("Tu Grok API Key:", type="password")
-    
+if "config_api_key" not in st.session_state: st.session_state.config_api_key = ""
+if "config_proveedor" not in st.session_state: st.session_state.config_proveedor = "Groq (Llama 3)"
+if "config_perfil" not in st.session_state: st.session_state.config_perfil = ""
+if "config_instruccion" not in st.session_state: st.session_state.config_instruccion = ""
+if "config_contexto" not in st.session_state: st.session_state.config_contexto = ""
+if "config_intencion" not in st.session_state: st.session_state.config_intencion = ""
+
+
+# --- PANTALLA 1: CONFIGURACIÓN ---
+def mostrar_pantalla_configuracion():
+    st.title("Agente Simulador Nexus")
     st.markdown("---")
     
-    # Parámetros (Usamos formularios para que no se recargue mientras escribes)
-    with st.form("config_form"):
-        st.write("📝 Define la personalidad:")
-        p_perfil = st.text_area("Perfil", "Hombre de 60 años sin conocimiento de tecnologia")
-        p_animo = st.selectbox("Estado de Ánimo", ["Tranquilo", "Confundido", "Molesto"])
-        p_contexto = st.text_area("Contexto", "Lleva 3 horas sin internet.")
-        p_intencion = st.text_area("Intención", "Quiere solución inmediata o cancelar.")
-        
-        # Botón para aplicar cambios
-        aplicar_cambios = st.form_submit_button("💾 Aplicar Cambios y Reiniciar")
-
-        # DICCIONARIO DE ACTUACIÓN (Traducimos la selección a instrucciones para el robot)
-    instrucciones_tono = {
-          "Tranquilo": "Usa un tono neutral y cooperativo. Responde de forma clara, breve y educada. No uses signos de exclamación.",
-  
-          "Confundido": "Muestra dudas e inseguridad al responder. Haz preguntas para aclarar la situación, usa expresiones como 'no estoy seguro' o '¿podrías explicarlo mejor?' y evita afirmaciones firmes.",
-  
-          "Molesto": "Usa un tono directo y cortante. Muestra impaciencia y descontento, utiliza frases breves y puede usar signos de exclamación para expresar molestia."
-    }
-
-
-    # Seleccionamos la instrucción oculta según lo que eligió el usuario
-    instruccion_actuacion = instrucciones_tono[p_animo]
-
-    # Si se presiona el botón del formulario, reiniciamos la memoria
-    if aplicar_cambios:
-        st.session_state.mensajes = []
-        st.session_state.turno = 0
-        st.session_state.simulacion_activa = True
-        st.success("✅ Configuración actualizada y chat reiniciado.")
-        st.session_state.mensajes.append({"role": "assistant", "content": "Hola, bienvenido a Soporte Técnico. ¿En qué puedo ayudarte hoy?"})
-
-# --- 3. LÓGICA DE IA ---
-if api_key:
-    os.environ["GROQ_API_KEY"] = api_key
+    col_izq, col_der = st.columns([1, 2])
     
-    # Intentamos configurar el modelo
-    try:
-        # USAMOS EL 2.0 FLASH QUE ES EL QUE TIENE TU CUENTA
-        llm = ChatGroq(
-            model="llama-3.3-70b-versatile", 
-            temperature=0.9,
-            max_retries=2, # Reintentar si falla una vez
-        )
-    except Exception as e:
-        st.error(f"Error en el modelo: {e}")
+    with col_izq:
+        st.subheader("RAG agregado")
+        
+        st.markdown(f"""
+        <div class="rag-box">
+            📂 <b>Base de Conocimiento Activa:</b><br>
+            <code>{nombre_rag}</code><br>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
 
-    # Definimos los Templates (Guiones)
+        proveedor = st.selectbox(
+            "Selecciona el LLM (Cerebro):",
+            ["Seleccionar...", "Groq (Llama 3)", "Google (Gemini)"]
+        )
+        
+        api_key_input = ""
+        
+        if proveedor == "Groq (Llama 3)":
+            api_key_input = st.text_input("🔑 Tu Groq API Key:", type="password", value=st.session_state.config_api_key)
+            st.caption("Modelo: llama-3.3-70b-versatile")
+            
+        elif proveedor == "Google (Gemini)":
+            api_key_input = st.text_input("🔑 Tu Google API Key:", type="password", value=st.session_state.config_api_key)
+            st.caption("Modelo: gemini-2.5-flash")
+            
+        elif proveedor == "Seleccionar...":
+            st.info(" Selecciona un modelo para empezar.")
+
+    with col_der:
+        st.warning(" **Diseño del Cliente (Actor)**")
+        
+        with st.form("config_form"):
+            c_perfil = st.text_area("Perfil",placeholder="Aquí describe al cliente: Edad, rasgos distintivos, nivel de conocimiento (ej: 'Le dice cajita al router')...", height=100)
+            c_animo = st.selectbox("Ánimo Inicial", ["Tranquilo", "Confundido", "Molesto"])
+            c_contexto = st.text_area("Contexto", placeholder="Describe la situación: ¿Desde cuándo falla? ¿Qué problema tiene con el servicio?...", height=80)
+            c_intencion = st.text_area("Objetivo", placeholder="¿Qué quiere conseguir? (Ej: Que vaya un técnico, cancelar el servicio, un reembolso)...", height=80)
+            
+            submitted = st.form_submit_button("GUARDAR Y LANZAR SIMULACIÓN")
+            
+            if submitted:
+                if proveedor == "Seleccionar..." or not api_key_input:
+                    st.error("⚠️ Selecciona un proveedor e ingresa la API Key.")
+                else:
+                    instrucciones_tono = {
+                        "Tranquilo": "El cliente se expresa de forma calmada y cooperativa. Responde con claridad y está dispuesto a seguir instrucciones.",
+                        "Confundido": "El cliente muestra dudas, no entiende bien el problema o las indicaciones. Hace preguntas y requiere explicaciones simples.",
+                        "Molesto": "El cliente expresa frustración o enojo. Responde de forma cortante y tiene baja tolerancia a errores."
+                    }
+                    
+                    st.session_state.config_proveedor = proveedor
+                    st.session_state.config_api_key = api_key_input
+                    st.session_state.config_perfil = c_perfil
+                    st.session_state.config_instruccion = instrucciones_tono.get(c_animo, "Neutral")
+                    st.session_state.config_contexto = c_contexto
+                    st.session_state.config_intencion = c_intencion
+                    
+                    st.session_state.mensajes = [{"role": "assistant", "content": "Hola, bienvenido a Soporte Técnico. ¿En qué puedo ayudarte hoy?"}]
+                    st.session_state.caso_activo = True
+                    st.session_state.simulacion_corriendo = False
+                    st.session_state.pagina_actual = "chat"
+                    st.rerun()
+
+# --- PANTALLA 2: SIMULACIÓN ---
+def mostrar_pantalla_chat():
+    col_back, col_title = st.columns([1, 4])
+    with col_back:
+        if st.button("⬅️ Configuración"):
+            st.session_state.pagina_actual = "configuracion"
+            st.session_state.simulacion_corriendo = False
+            st.rerun()
+    with col_title:
+        prov_actual = st.session_state.config_proveedor
+        st.subheader(f"Simulación en Curso | {prov_actual}")
+
+    api_key = st.session_state.get("config_api_key", "")
+    proveedor = st.session_state.get("config_proveedor", "")
+    
+    if not api_key:
+        st.error("⛔ Falta API Key.")
+        return
+
+# --- LLM ---
+    llm = None
+    try:
+        if "Groq" in proveedor:
+            if "ChatGroq" not in globals():
+                 st.error("⚠️ Falta librería. Instala: pip install langchain-groq")
+                 return
+            os.environ["GROQ_API_KEY"] = api_key
+            llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.9, max_retries=1)
+            
+        elif "Google" in proveedor:
+            if "ChatGoogleGenerativeAI" not in globals():
+                 st.error("⚠️ Falta librería. Instala: pip install langchain-google-genai")
+                 return
+            os.environ["GOOGLE_API_KEY"] = api_key
+            llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.9)
+            
+    except Exception as e:
+        st.error(f"Error conectando con {proveedor}: {e}")
+        return
+
+# --- PROMPTS ---
     prompt_cliente = PromptTemplate(
         input_variables=["perfil", "instruccion_actuacion", "contexto", "intencion", "mensaje_recibido","historial"],
         template="""
-        Eres un cliente interactuando con soporte técnico. Sigue estrictamente tu perfil.
+        Eres un cliente.
         PERFIL: {perfil}
-        ESTADO DE ÁNIMO: {instruccion_actuacion}
+        ACTITUD: {instruccion_actuacion}
         CONTEXTO: {contexto}
         OBJETIVO: {intencion}
-
-        HISTORIAL DE LA CONVERSACIÓN (Léelo para no contradecirte):
-        {historial}
-        
-        ÚLTIMO MENSAJE DEL SOPORTE: "{mensaje_recibido}"
+        HISTORIAL: {historial}
+        SOPORTE DICE: "{mensaje_recibido}"
         
         INSTRUCCIONES:
-        - Tu respuesta debe ser CORTA (máximo 30 palabras).
-        - Si el soporte resolvió tu problema, di "GRACIAS" o "ADIOS".
-        - Si el soporte te niega una petición (ej. hablar con supervisor) MÁS DE DOS VECES, debes ceder y aceptar una de las otras opciones (ej. la cancelación o el técnico), aunque sea a regañadientes. ¡No te quedes en un bucle!
+        - Respuesta CORTA (máx 30 palabras).
+        - Si niegan tu petición 2 veces, acepta la alternativa.
+        - Solo dices tu objetivo 1 vez
+        - Si no tienes mas requerimientos y el soporte te pide que digas adios para cerrar la consulta debes decir adios en tu  mensaje
         
         TU RESPUESTA:
         """
@@ -113,160 +206,112 @@ if api_key:
     cadena_cliente = prompt_cliente | llm
 
     prompt_soporte = PromptTemplate(
-        # Agregamos la variable 'knowledge'
         input_variables=["mensaje_cliente", "knowledge", "historial"],
         template="""
-        Eres un agente de soporte técnico de la empresa "NexusNet".
-        
-        TUS POLÍTICAS Y CONOCIMIENTO INTERNO (RAG):
-        {knowledge}
-
-        HISTORIAL DE LA CONVERSACIÓN (¡LÉELO ATENTAMENTE!):
-        {historial}
-        
-        EL CLIENTE DIJO: "{mensaje_cliente}"
+        Eres agente de soporte "NexusNet".
+        POLÍTICAS: {knowledge}
+        HISTORIAL: {historial}
+        CLIENTE DICE: "{mensaje_cliente}"
         
         INSTRUCCIONES:
-        1. Responde de forma profesional basándote ESTRICTAMENTE en las políticas de arriba.
-        2. Si el cliente pide algo que va contra la política, niégalo amablemente.
-        3. Sé corto (máximo 40 palabras).
-        4. Si el cliente dice "Adiós", "Chao", "Gracias", "Eso es todo" o se despide -> Responde cordialmente y AGREGA "[CASO CERRADO]".
+        1. Responde según políticas. Máximo 40 palabras.
+        2. Solo si el cliente se despide o si aclara que no tiene mas requerimientos, ES OBLIGATORIO escribir al final: "[CASO CERRADO]"
         """
     )
     cadena_soporte = prompt_soporte | llm
 
-    # --- 4. VISUALIZACIÓN DEL CHAT ---
+# --- BOTONES ---
     with st.container():
-        col_titulo, col_btns = st.columns([3, 2])
-        
-        with col_titulo:
-            st.subheader("Panel de Control de Simulación")
-            
-        with col_btns:
-            # Inicializamos estados
-            if "caso_activo" not in st.session_state:
-                st.session_state.caso_activo = True
-            if "simulacion_corriendo" not in st.session_state:
-                st.session_state.simulacion_corriendo = False
-
-            # LÓGICA DE BOTONES
+        col_st, col_ct = st.columns([2, 2])
+        with col_st:
             if not st.session_state.caso_activo:
-                st.success("✅ CASO FINALIZADO")
-                if st.button("🔄 Nuevo Caso", type="primary", use_container_width=True):
-                    st.session_state.mensajes = [{"role": "assistant", "content": "Hola, bienvenido a Soporte Técnico. ¿En qué puedo ayudarte hoy?"}]
-                    st.session_state.caso_activo = True
-                    st.session_state.simulacion_corriendo = False
-                    st.rerun()
-            
+                st.success("✅ CASO CERRADO")
             else:
-                # Botones de Play/Stop
-                col_play, col_stop = st.columns(2)
-                with col_play:
-                    if not st.session_state.simulacion_corriendo:
-                        if st.button("▶️ Iniciar", type="primary", use_container_width=True):
-                            st.session_state.simulacion_corriendo = True
-                            st.rerun()
-                    else:
-                        st.info("🟢 Corriendo...")
-                
-                with col_stop:
-                    if st.session_state.simulacion_corriendo:
-                        if st.button("⏹️ Detener", type="secondary", use_container_width=True):
-                            st.session_state.simulacion_corriendo = False
-                            st.rerun()
-    
-    if "mensajes" not in st.session_state:
-        st.session_state.mensajes = [{"role": "assistant", "content": "Hola, bienvenido a Soporte Técnico. ¿En qué puedo ayudarte hoy?"}]
+                st.info(f"Activo")
+        with col_ct:
+            if st.session_state.caso_activo:
+                if not st.session_state.simulacion_corriendo:
+                    if st.button("▶️ INICIAR", type="primary"):
+                        if not st.session_state.mensajes:
+                            st.session_state.mensajes = [{"role": "assistant", "content": "Hola."}]
+                        st.session_state.simulacion_corriendo = True
+                        st.rerun()
+                else:
+                    if st.button("⏹️ PAUSAR"):
+                        st.session_state.simulacion_corriendo = False
+                        st.rerun()
+            else:
+                if st.button("🔄 REINICIAR"):
+                    st.session_state.mensajes = [{"role": "assistant", "content": "Hola."}]
+                    st.session_state.caso_activo = True
+                    st.rerun()
+
+    st.divider()
+
+#--- CHAT ---
+    if not st.session_state.mensajes:
+         st.session_state.mensajes = [{"role": "assistant", "content": "Hola, soporte técnico."}]
 
     for msg in st.session_state.mensajes:
-        if msg["role"] == "user":
-            with st.chat_message("user", avatar="😡"):
-                st.write(msg["content"])
-        else:
-            with st.chat_message("assistant", avatar="🤖"):
-                st.write(msg["content"])
+        avatar = "🛠" if msg["role"] == "assistant" else "🧑"
+        with st.chat_message(msg["role"], avatar=avatar):
+            st.write(msg["content"])
 
-    # --- 5. BOTÓN DE ACCIÓN (CORREGIDO) ---
-    
     if st.session_state.caso_activo and st.session_state.simulacion_corriendo:
-        # Verificamos que haya historial
-        if not st.session_state.mensajes:
-             st.session_state.mensajes = [{"role": "assistant", "content": "Hola."}]
-
-        ultimo_msg_soporte = st.session_state.mensajes[-1]["content"]
-
-        historial_actual = obtener_historial_como_texto()
         
-        # --- BLOQUE DE SEGURIDAD (TRY-EXCEPT) ---
+        ultimo_msg = st.session_state.mensajes[-1]
+        historial_actual = obtener_historial_como_texto()
+
         try:
-            time.sleep(3)
-            with st.spinner('Nexus escribiendo...'):
-                # Turno Cliente
-                res_cliente = cadena_cliente.invoke({
-                    "perfil": p_perfil,
-                    "instruccion_actuacion": instruccion_actuacion,
-                    "contexto": p_contexto,
-                    "intencion": p_intencion,
-                    "mensaje_recibido": ultimo_msg_soporte,
-                    "historial": historial_actual
-                })
-                
-                # --- PARCHE DE LIMPIEZA (AQUÍ ESTÁ LA MAGIA) ---
-                # Si Gemini manda una lista rara con JSON, sacamos solo el texto
-                texto_raw = res_cliente.content
-                if isinstance(texto_raw, list) and len(texto_raw) > 0:
-                    texto_cliente = texto_raw[0].get("text", str(texto_raw))
-                else:
-                    texto_cliente = str(texto_raw)
-                # -----------------------------------------------
-                
-                st.session_state.mensajes.append({"role": "user", "content": texto_cliente})
-                with st.chat_message("user", avatar="😡"):
-                    st.write(texto_cliente)
-            
-            time.sleep(3) # Pausa para no saturar la API
+            if ultimo_msg["role"] == "assistant":
+                with st.spinner(f'Cliente pensando...'):
+                    time.sleep(3) 
+                    res_cliente = cadena_cliente.invoke({
+                        "perfil": st.session_state.config_perfil,
+                        "instruccion_actuacion": st.session_state.config_instruccion,
+                        "contexto": st.session_state.config_contexto,
+                        "intencion": st.session_state.config_intencion,
+                        "mensaje_recibido": ultimo_msg["content"],
+                        "historial": historial_actual
+                    })
+                    txt_c = str(res_cliente.content)
+                    if isinstance(res_cliente.content, list): txt_c = res_cliente.content[0].get("text", "")
+                    
+                    st.session_state.mensajes.append({"role": "user", "content": txt_c})
+                    
+                    if "ADIOS" in txt_c.upper() and len(txt_c.split()) < 5:
+                        st.session_state.mensajes.append({"role": "system", "content": "SISTEMA: Cierre detectado."}) 
+                    
+                    st.rerun()
 
-            historial_con_cliente = obtener_historial_como_texto()
-
-            with st.spinner('Soporte respondiendo...'):
-                # Turno Soporte
-                texto_politicas = json.dumps(politicas_empresa, ensure_ascii=False)
-                
-                # Le pasamos el conocimiento (RAG)
-                res_soporte = cadena_soporte.invoke({
-                    "mensaje_cliente": texto_cliente,
-                    "knowledge": texto_politicas,  # <--- AQUÍ INYECTAMOS EL JSON
-                    "historial": historial_con_cliente
-                })
-                # --- LIMPIEZA TAMBIÉN PARA EL SOPORTE ---
-                texto_raw_sop = res_soporte.content
-                if isinstance(texto_raw_sop, list) and len(texto_raw_sop) > 0:
-                    texto_soporte = texto_raw_sop[0].get("text", str(texto_raw_sop))
-                else:
-                    texto_soporte = str(texto_raw_sop)
-                # ----------------------------------------
-                
-                texto_upper = texto_soporte.upper()
-                caso_cerrado = False
-                if "[CASO CERRADO]" in texto_upper or "CASO CERRADO" in texto_upper:
-                    caso_cerrado = True
-                
-                mensaje_para_mostrar = texto_soporte.replace("[CASO CERRADO]", "").replace("CASO CERRADO", "")
-                st.session_state.mensajes.append({"role": "assistant", "content": mensaje_para_mostrar})
-                with st.chat_message("assistant", avatar="🤖"):
-                    st.write(texto_soporte)
-
-                if caso_cerrado:
-                    st.session_state.caso_activo = False
-                    st.session_state.simulacion_corriendo = False
-            
-            # Recargar para actualizar botones
-            st.rerun()
+            elif ultimo_msg["role"] == "user":
+                with st.spinner(f'Agente Nexus respondiendo...'):
+                    time.sleep(4) 
+                    texto_politicas = json.dumps(politicas_empresa, ensure_ascii=False)
+                    res_soporte = cadena_soporte.invoke({
+                        "mensaje_cliente": ultimo_msg["content"],
+                        "knowledge": texto_politicas,
+                        "historial": historial_actual
+                    })
+                    txt_s = str(res_soporte.content)
+                    if isinstance(res_soporte.content, list): txt_s = res_soporte.content[0].get("text", "")
+                    
+                    if "[CASO CERRADO]" in txt_s.upper():
+                        st.session_state.caso_activo = False
+                        st.session_state.simulacion_corriendo = False
+                    
+                    msg_limpio = txt_s.replace("[CASO CERRADO]", "").replace("CASO CERRADO", "")
+                    st.session_state.mensajes.append({"role": "assistant", "content": msg_limpio})
+                    st.rerun()
 
         except Exception as e:
-            st.error(f"⚠️ Ocurrió un error: {e}")
+            st.error(f"⚠️ Error ({proveedor}): {e}")
             st.session_state.simulacion_corriendo = False
-            st.info("Si es un error de Rate Limit con Groq, espera un minuto.")
 
-else:
-    st.warning("👈 Ingresa tu API Key en la izquierda para comenzar.")
+
+if st.session_state.pagina_actual == "configuracion":
+    mostrar_pantalla_configuracion()
+elif st.session_state.pagina_actual == "chat":
+    mostrar_pantalla_chat()
+
+#https://github.com/mariovicunaa/Semillero-ia-agente-simulador-Grupo-Nexus
