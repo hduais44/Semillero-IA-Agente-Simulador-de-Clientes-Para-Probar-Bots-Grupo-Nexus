@@ -100,6 +100,13 @@ streamlit run src/main.py
 
 ---
 
+## Tests
+
+El proyecto no incluye pruebas unitarias automatizadas debido a la naturaleza interactiva del sistema y al uso de modelos de lenguaje externos (LLM).
+La validación del correcto funcionamiento se realizó mediante **pruebas funcionales y simulaciones manuales**, verificando distintos perfiles de cliente, estados de ánimo y flujos de cierre de casos.
+
+---
+
 ## Autores
 - Luis Antonio Garces Ordóñez  
   GitHub: hduais44
@@ -115,6 +122,8 @@ streamlit run src/main.py
 ## Link del video
 
 https://youtu.be/EcOTv8V5On0
+
+---
 
 ## 📂 Estructura del Proyecto
 
