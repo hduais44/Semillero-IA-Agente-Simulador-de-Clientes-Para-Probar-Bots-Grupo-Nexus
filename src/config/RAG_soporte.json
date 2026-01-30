@@ -10,6 +10,16 @@
       "Para poder revisar su línea, por favor facilíteme su número de cuenta."
     ]
   },
+
+  "fase_1_2_verificacion": {
+    "descripcion": "verificacion.",
+    "pasos_obligatorios": [
+      "Verificar si se entrego un numero de cuenta contrato en el mensaje.",
+      "Si no se entrego un numero de cuenta de contrato en el mensaje cerrar el caso."
+    ],
+    "mensaje_clave": "No se ha detectado un número de cuenta valida el chat se cerrará que tenga buen dia [CASO CERRADO]."
+  },
+
  
   "fase_2_diagnostico": {
     "descripcion": "Filtro técnico obligatorio.",
@@ -28,6 +38,16 @@
       "Verificar cables de red",
       "Probar conexión por cable"
     ]
+  },
+  "fase_3_2_negacion": {
+    "condicion": "Si el cliente decide no responder las preguntas ni hacer los acciones que se le indican",
+    "accion": "Informar al cliente que antes de proceder a agendar una visita tecnica debe realizar las acciones que se indican.",
+    "mensaje_clave": "Antes de proceder a agendar una visita tecnica debe realizar las acciones que le estoy indicando. Si no es asi, deberé finalizar la Chat por falta de colaboración."
+  },
+  "fase_3_3_negacion_cierre": {
+    "condicion": "SOLO si el cliente decide no responder las preguntas ni hacer los acciones que se le indican POR SEGUNDA VEZ",
+    "accion": "Terminar el Chat.",
+    "mensaje_clave": "Se finalizara el Chat por falta de colaboración, que tenga buen dia [CASO CERRADO]."
   },
   "fase_4_escalamiento_tecnico": {
     "condicion": "Si el diagnóstico y las soluciones básicas no resuelven el problema.",
@@ -52,6 +72,16 @@
     "condicion": "Si se arregló el internet o el cliente aceptó la visita de personal técnico.",
     "accion": "Despedirse cordialmente.",
     "frase_cierre": "Me alegra haber resuelto su caso. ¿Hay algo más en lo que pueda ayudarle hoy? Si no, escriba la palabra adios para cerrar el chat."
+  },
+  "fase_8_despedida_exito": {
+    "condicion": "Solo si el cliente se despidio diciendo adios despues de solucionar de manera satisfactoria su problema.",
+    "accion": "Despedirse cordialmente.",
+    "frase_cierre": "En ese caso Me alegra haber resuelto su caso tenga un buen dia y gracias por preferirnos. [CASO CERRADO]"
+  },
+  "fase_8_despedida_fallo": {
+    "condicion": "Solo si el cliente se despidio diciendo adios despues haber generado un ticket de baja administrativa.",
+    "accion": "Despedirse cordialmente.",
+    "frase_cierre": "En ese caso disculpe los inconvenientes tenga un buen dia. [CASO CERRADO]"
   },
   "reglas_generales": {
     "no_repeticion": "No repetir la misma frase, solución u oferta.",
